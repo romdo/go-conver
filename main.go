@@ -20,24 +20,11 @@ import (
 
 const changelogTemplate = `
 ## {{ .Version }}
-
-{{- range $commit := .Commits }}
-
-### {{ $commit.Git.Hash }}
-
-{{ $commit.Git.Message }}
-* Type: {{ $commit.Conv.Type }}
-* Scope: {{ $commit.Conv.Scope }}
-* Description: {{ $commit.Conv.Description }}
-* Header: {{ $commit.Conv.Header }}
-* MergeHeader: {{ $commit.Conv.MergeHeader }}
-* Body: {{ $commit.Conv.Body }}
-* Footers: {{ $commit.Conv.Footers }}
-* Mentions: {{ $commit.Conv.Mentions }}
-* References: {{ $commit.Conv.References }}
-* Notes: {{ $commit.Conv.Notes }}
-* Reverts: {{ $commit.Conv.Reverts }}
-* IsBreaking: {{ $commit.Conv.IsBreaking }}
+{{ range $type, $commits := .CommitsGrouped }}
+### {{ $type }}
+{{ range $commit := $commits }}
+* {{ if $commit.Conv.Scope }}__{{ $commit.Conv.Scope }}:__ {{ else }}{{ end }}{{ $commit.Conv.Description }}
+{{- end }}
 {{ end }}
 `
 
@@ -64,8 +51,9 @@ type (
 		ChangelogPath   string `flag:"changelog-path" desc:"Changelog file path"`
 	}
 	changelogEntry struct {
-		Version string
-		Commits []*changelogCommit
+		Version        string
+		Commits        []*changelogCommit
+		CommitsGrouped map[string][]*changelogCommit
 	}
 	changelogCommit struct {
 		Git  *object.Commit
@@ -283,6 +271,7 @@ func changelogUpdate(c *config) error {
 
 	// find commits since the latest tag
 	commitsSinceTag := []*changelogCommit{}
+	commitsSinceTagGrouped := map[string][]*changelogCommit{}
 	commitIter, err := repo.Log(&git.LogOptions{})
 	err = commitIter.ForEach(func(commit *object.Commit) error {
 		// once we reach the commit of the latest tag, we're done
@@ -293,10 +282,22 @@ func changelogUpdate(c *config) error {
 		if err != nil {
 			return err
 		}
-		commitsSinceTag = append(commitsSinceTag, &changelogCommit{
+		changelogEntry := &changelogCommit{
 			Git:  commit,
 			Conv: convCommit,
-		})
+		}
+		commitType := convCommit.Type
+		if convCommit.IsBreaking {
+			commitType = "breaking"
+		}
+		commitsSinceTag = append(commitsSinceTag, changelogEntry)
+		if _, ok := commitsSinceTagGrouped[commitType]; !ok {
+			commitsSinceTagGrouped[commitType] = []*changelogCommit{}
+		}
+		commitsSinceTagGrouped[commitType] = append(
+			commitsSinceTagGrouped[commitType],
+			changelogEntry,
+		)
 		return nil
 	})
 	if err != nil && err != errDone {
@@ -317,8 +318,9 @@ func changelogUpdate(c *config) error {
 	// render template
 	var newBody bytes.Buffer
 	if err := tmpl.Execute(&newBody, &changelogEntry{
-		Version: newVersion,
-		Commits: commitsSinceTag,
+		Version:        newVersion,
+		Commits:        commitsSinceTag,
+		CommitsGrouped: commitsSinceTagGrouped,
 	}); err != nil {
 		return err
 	}
