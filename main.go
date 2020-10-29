@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
 
@@ -9,6 +11,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/octago/sflags/gen/gflag"
 )
 
@@ -25,7 +28,7 @@ type (
 		FilePath   string `flag:"file-path" desc:"Version file path"`
 
 		// git tag config
-		GitTagCreate bool
+		GitTagUpdate bool `flag:"git-tag-update" desc:"Use git tags"`
 
 		// version config
 		VersionPrefix string `flag:"version-prefix" desc:"Version prefix"`
@@ -36,18 +39,78 @@ type (
 	}
 )
 
-func detectBump(c *config) error {
+func autodetectBump(c *config) error {
 	if !c.AutodetectBump {
 		return nil
 	}
+	return nil
+}
+
+// errDone is used to exit the git iterators early
+var errDone = errors.New("done")
+
+func gitTagUpdate(c *config) error {
+	// check if we are updating git tags
+	if !c.GitTagUpdate {
+		return nil
+	}
+
+	// open repository
 	repo, err := git.PlainOpen(".")
 	if err != nil {
 		return err
 	}
-	tagrefs, err := repo.Tags()
-	err = tagrefs.ForEach(func(t *plumbing.Reference) error {
-		log.Println(t.Hash(), t.String())
+
+	// get head
+	head, err := repo.Head()
+	if err != nil {
+		return err
+	}
+
+	// find the latest tag
+	var latestTagCommit *object.Commit
+	var latestTagName string
+	tagRefs, err := repo.Tags()
+	err = tagRefs.ForEach(func(tagRef *plumbing.Reference) error {
+		rev := plumbing.Revision(tagRef.Name().String())
+		tagCommitHash, err := repo.ResolveRevision(rev)
+		if err != nil {
+			return err
+		}
+		commit, err := repo.CommitObject(*tagCommitHash)
+		if err != nil {
+			return err
+		}
+		if latestTagCommit == nil {
+			latestTagCommit = commit
+			latestTagName = tagRef.Name().Short()
+		}
+		if commit.Committer.When.After(latestTagCommit.Committer.When) {
+			latestTagCommit = commit
+			latestTagName = tagRef.Name().Short()
+		}
 		return nil
+	})
+	if err != nil && err != errDone {
+		return err
+	}
+
+	// check current head is the latest tag
+	if latestTagCommit.Hash == head.Hash() {
+		return errors.New("head is already tagged")
+	}
+
+	// bump version
+	newVersion, err := bumpVersion(latestTagName, c)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(latestTagName, newVersion)
+
+	// create new tag
+	repo.CreateTag(newVersion, head.Hash(), &git.CreateTagOptions{
+		Message: "chore(version): bump version to " + newVersion,
 	})
 	return nil
 }
@@ -71,26 +134,6 @@ func fileUpdate(c *config) error {
 	}
 	return ioutil.WriteFile(c.FilePath, []byte(newVersion), 0644)
 }
-
-// func changelogGenerate(c *config) error {
-// 	if !c.FileUpdate {
-// 		return nil
-// 	}
-// 	currentVersion := "0.0.0"
-// 	versionFileBody, err := ioutil.ReadFile(c.FilePath)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	currentVersion = string(versionFileBody)
-// 	if currentVersion == "" {
-// 		currentVersion = c.VersionPrefix + "0.0.0"
-// 	}
-// 	newVersion, err := bumpVersion(currentVersion, c)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	return ioutil.WriteFile(c.FilePath, []byte(newVersion), 0644)
-// }
 
 func bumpVersion(currentVersion string, c *config) (string, error) {
 	cleanCurrentVersionString := currentVersion[len(c.VersionPrefix):]
@@ -127,8 +170,9 @@ func main() {
 	spew.Dump(c)
 
 	actions := []func(*config) error{
-		detectBump,
+		autodetectBump,
 		fileUpdate,
+		gitTagUpdate,
 	}
 	for _, action := range actions {
 		if err := action(c); err != nil {
