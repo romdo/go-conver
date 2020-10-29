@@ -34,13 +34,94 @@ type (
 		VersionPrefix string `flag:"version-prefix" desc:"Version prefix"`
 
 		// changelog config
-		ChangelogGenerate     bool
+		ChangelogUpdate       bool
 		ChangelogTemplatePath string
 	}
 )
 
+// errDone is used to exit the git iterators early
+var errDone = errors.New("done")
+
 func autodetectBump(c *config) error {
+	// check if we should be autodetecting the bump
 	if !c.AutodetectBump {
+		return nil
+	}
+
+	// open repository
+	repo, err := git.PlainOpen(".")
+	if err != nil {
+		return err
+	}
+
+	// get head
+	head, err := repo.Head()
+	if err != nil {
+		return err
+	}
+
+	// find the latest tag
+	var latestTagCommit *object.Commit
+	tagRefs, err := repo.Tags()
+	err = tagRefs.ForEach(func(tagRef *plumbing.Reference) error {
+		rev := plumbing.Revision(tagRef.Name().String())
+		tagCommitHash, err := repo.ResolveRevision(rev)
+		if err != nil {
+			return err
+		}
+		commit, err := repo.CommitObject(*tagCommitHash)
+		if err != nil {
+			return err
+		}
+		if latestTagCommit == nil {
+			latestTagCommit = commit
+		}
+		if commit.Committer.When.After(latestTagCommit.Committer.When) {
+			latestTagCommit = commit
+		}
+		return nil
+	})
+	if err != nil && err != errDone {
+		return err
+	}
+
+	// find commits since the latest tag
+	commitsSinceTag := []*object.Commit{}
+	commitIter, err := repo.Log(&git.LogOptions{})
+	err = commitIter.ForEach(func(commit *object.Commit) error {
+		// once we reach the commit of the latest tag, we're done
+		if commit.Hash == latestTagCommit.Hash {
+			return errDone
+		}
+		commitsSinceTag = append(commitsSinceTag, commit)
+		return nil
+	})
+	if err != nil && err != errDone {
+		return err
+	}
+
+	// check current head is the latest tag
+	if latestTagCommit.Hash == head.Hash() {
+		return errors.New("head is already tagged")
+	}
+
+	// go through the commits and figure out what we need to bump
+	c.BumpMajor = false
+	c.BumpMinor = false
+	c.BumpPatch = false
+	for _, commit := range commitsSinceTag {
+		switch {
+		case strings.Contains(commit.Message, "BREAKING"):
+			c.BumpMajor = true
+		}
+	}
+
+	return nil
+}
+
+func gitTagUpdate(c *config) error {
+	// check if we are updating git tags
+	if !c.GitTagUpdate {
 		return nil
 	}
 
@@ -84,46 +165,29 @@ func autodetectBump(c *config) error {
 		return err
 	}
 
-	// find commits since the latest tag
-	commitsSinceTag := []*object.Commit{}
-	commitIter, err := repo.Log(&git.LogOptions{})
-	err = commitIter.ForEach(func(commit *object.Commit) error {
-		// once we reach the commit of the latest tag, we're done
-		if commit.Hash == latestTagCommit.Hash {
-			return errDone
-		}
-		commitsSinceTag = append(commitsSinceTag, commit)
-		return nil
-	})
-	if err != nil && err != errDone {
-		return err
-	}
-
 	// check current head is the latest tag
 	if latestTagCommit.Hash == head.Hash() {
 		return errors.New("head is already tagged")
 	}
 
-	// go through the commits and figure out what we need to bump
-	c.BumpMajor = false
-	c.BumpMinor = false
-	c.BumpPatch = false
-	for _, commit := range commitsSinceTag {
-		switch {
-		case strings.Contains(commit.Message, "BREAKING"):
-			c.BumpMajor = true
-		}
+	// bump version
+	newVersion, err := bumpVersion(latestTagName, c)
+	if err != nil {
+		return err
 	}
 
+	fmt.Println(latestTagName, newVersion)
+
+	// create new tag
+	repo.CreateTag(newVersion, head.Hash(), &git.CreateTagOptions{
+		Message: "chore(version): bump version to " + newVersion,
+	})
 	return nil
 }
 
-// errDone is used to exit the git iterators early
-var errDone = errors.New("done")
-
-func gitTagUpdate(c *config) error {
-	// check if we are updating git tags
-	if !c.GitTagUpdate {
+func changelogUpdate(c *config) error {
+	// check if we are updating changelog
+	if !c.ChangelogUpdate {
 		return nil
 	}
 
