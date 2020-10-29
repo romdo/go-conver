@@ -135,6 +135,13 @@ func fileUpdate(c *config) error {
 	return ioutil.WriteFile(c.FilePath, []byte(newVersion), 0644)
 }
 
+func bumpAtLeastMinor(c *config) error {
+	if !c.BumpMajor && !c.BumpMinor && !c.BumpPatch {
+		c.BumpPatch = true
+	}
+	return nil
+}
+
 func bumpVersion(currentVersion string, c *config) (string, error) {
 	cleanCurrentVersionString := currentVersion[len(c.VersionPrefix):]
 	cleanCurrentVersion, err := semver.NewVersion(cleanCurrentVersionString)
@@ -149,9 +156,6 @@ func bumpVersion(currentVersion string, c *config) (string, error) {
 		cleanNewVersion = cleanNewVersion.IncMinor()
 	}
 	if c.BumpPatch {
-		cleanNewVersion = cleanNewVersion.IncPatch()
-	}
-	if cleanCurrentVersion.Equal(&cleanNewVersion) {
 		cleanNewVersion = cleanNewVersion.IncPatch()
 	}
 	return c.VersionPrefix + cleanNewVersion.String(), nil
@@ -171,6 +175,7 @@ func main() {
 
 	actions := []func(*config) error{
 		autodetectBump,
+		bumpAtLeastMinor,
 		fileUpdate,
 		gitTagUpdate,
 	}
