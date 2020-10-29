@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"strings"
 
 	"github.com/Masterminds/semver"
-	"github.com/davecgh/go-spew/spew"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -43,6 +43,78 @@ func autodetectBump(c *config) error {
 	if !c.AutodetectBump {
 		return nil
 	}
+
+	// open repository
+	repo, err := git.PlainOpen(".")
+	if err != nil {
+		return err
+	}
+
+	// get head
+	head, err := repo.Head()
+	if err != nil {
+		return err
+	}
+
+	// find the latest tag
+	var latestTagCommit *object.Commit
+	var latestTagName string
+	tagRefs, err := repo.Tags()
+	err = tagRefs.ForEach(func(tagRef *plumbing.Reference) error {
+		rev := plumbing.Revision(tagRef.Name().String())
+		tagCommitHash, err := repo.ResolveRevision(rev)
+		if err != nil {
+			return err
+		}
+		commit, err := repo.CommitObject(*tagCommitHash)
+		if err != nil {
+			return err
+		}
+		if latestTagCommit == nil {
+			latestTagCommit = commit
+			latestTagName = tagRef.Name().Short()
+		}
+		if commit.Committer.When.After(latestTagCommit.Committer.When) {
+			latestTagCommit = commit
+			latestTagName = tagRef.Name().Short()
+		}
+		return nil
+	})
+	if err != nil && err != errDone {
+		return err
+	}
+
+	// find commits since the latest tag
+	commitsSinceTag := []*object.Commit{}
+	commitIter, err := repo.Log(&git.LogOptions{})
+	err = commitIter.ForEach(func(commit *object.Commit) error {
+		// once we reach the commit of the latest tag, we're done
+		if commit.Hash == latestTagCommit.Hash {
+			return errDone
+		}
+		commitsSinceTag = append(commitsSinceTag, commit)
+		return nil
+	})
+	if err != nil && err != errDone {
+		return err
+	}
+
+	// check current head is the latest tag
+	if latestTagCommit.Hash == head.Hash() {
+		return errors.New("head is already tagged")
+	}
+
+	// go through the commits and figure out what we need to bump
+	c.BumpMajor = false
+	c.BumpMinor = false
+	c.BumpPatch = false
+	for _, commit := range commitsSinceTag {
+		switch {
+		case strings.Contains(commit.Message, "BREAKING"):
+			c.BumpMajor = true
+		}
+	}
+
 	return nil
 }
 
@@ -171,7 +243,6 @@ func main() {
 		log.Fatalf("err: %v", err)
 	}
 	flag.Parse()
-	spew.Dump(c)
 
 	actions := []func(*config) error{
 		autodetectBump,
