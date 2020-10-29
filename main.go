@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
+	"html/template"
 	"io/ioutil"
 	"log"
 	"strings"
@@ -13,7 +15,31 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/octago/sflags/gen/gflag"
+	convcom "github.com/wfscheper/convcom"
 )
+
+const changelogTemplate = `
+## {{ .Version }}
+
+{{- range $commit := .Commits }}
+
+### {{ $commit.Git.Hash }}
+
+{{ $commit.Git.Message }}
+* Type: {{ $commit.Conv.Type }}
+* Scope: {{ $commit.Conv.Scope }}
+* Description: {{ $commit.Conv.Description }}
+* Header: {{ $commit.Conv.Header }}
+* MergeHeader: {{ $commit.Conv.MergeHeader }}
+* Body: {{ $commit.Conv.Body }}
+* Footers: {{ $commit.Conv.Footers }}
+* Mentions: {{ $commit.Conv.Mentions }}
+* References: {{ $commit.Conv.References }}
+* Notes: {{ $commit.Conv.Notes }}
+* Reverts: {{ $commit.Conv.Reverts }}
+* IsBreaking: {{ $commit.Conv.IsBreaking }}
+{{ end }}
+`
 
 type (
 	config struct {
@@ -34,8 +60,16 @@ type (
 		VersionPrefix string `flag:"version-prefix" desc:"Version prefix"`
 
 		// changelog config
-		ChangelogUpdate       bool
-		ChangelogTemplatePath string
+		ChangelogUpdate bool   `flag:"changelog-update" desc:"Update changelog"`
+		ChangelogPath   string `flag:"changelog-path" desc:"Changelog file path"`
+	}
+	changelogEntry struct {
+		Version string
+		Commits []*changelogCommit
+	}
+	changelogCommit struct {
+		Git  *object.Commit
+		Conv *convcom.Commit
 	}
 )
 
@@ -176,8 +210,6 @@ func gitTagUpdate(c *config) error {
 		return err
 	}
 
-	fmt.Println(latestTagName, newVersion)
-
 	// create new tag
 	repo.CreateTag(newVersion, head.Hash(), &git.CreateTagOptions{
 		Message: "chore(version): bump version to " + newVersion,
@@ -244,11 +276,64 @@ func changelogUpdate(c *config) error {
 
 	fmt.Println(latestTagName, newVersion)
 
-	// create new tag
-	repo.CreateTag(newVersion, head.Hash(), &git.CreateTagOptions{
-		Message: "chore(version): bump version to " + newVersion,
+	convComParser, err := convcom.New(&convcom.Config{})
+	if err != nil {
+		return err
+	}
+
+	// find commits since the latest tag
+	commitsSinceTag := []*changelogCommit{}
+	commitIter, err := repo.Log(&git.LogOptions{})
+	err = commitIter.ForEach(func(commit *object.Commit) error {
+		// once we reach the commit of the latest tag, we're done
+		if commit.Hash == latestTagCommit.Hash {
+			return errDone
+		}
+		convCommit, err := convComParser.Parse(commit.Message)
+		if err != nil {
+			return err
+		}
+		commitsSinceTag = append(commitsSinceTag, &changelogCommit{
+			Git:  commit,
+			Conv: convCommit,
+		})
+		return nil
 	})
-	return nil
+	if err != nil && err != errDone {
+		return err
+	}
+
+	// check current head is the latest tag
+	if latestTagCommit.Hash == head.Hash() {
+		return errors.New("head is already tagged")
+	}
+
+	// go through the commits and figure out what we need to bump
+	tmpl, err := template.New("changelog").Parse(changelogTemplate)
+	if err != nil {
+		return err
+	}
+
+	// render template
+	var newBody bytes.Buffer
+	if err := tmpl.Execute(&newBody, &changelogEntry{
+		Version: newVersion,
+		Commits: commitsSinceTag,
+	}); err != nil {
+		return err
+	}
+
+	// get existing file contents
+	changelogBody, err := ioutil.ReadFile(c.ChangelogPath)
+	if err != nil {
+		return err
+	}
+
+	// merge existing changelog with new
+	mergedBody := append(newBody.Bytes(), changelogBody...)
+
+	// and update file
+	return ioutil.WriteFile(c.ChangelogPath, mergedBody, 0644)
 }
 
 func fileUpdate(c *config) error {
@@ -301,6 +386,7 @@ func main() {
 	c := &config{
 		FilePath:      "VERSION",
 		VersionPrefix: "v",
+		ChangelogPath: "CHANGELOG",
 	}
 	err := gflag.ParseToDef(c)
 	if err != nil {
@@ -311,6 +397,7 @@ func main() {
 	actions := []func(*config) error{
 		autodetectBump,
 		bumpAtLeastMinor,
+		changelogUpdate,
 		fileUpdate,
 		gitTagUpdate,
 	}
