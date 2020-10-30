@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"errors"
 	"flag"
-	"fmt"
 	"html/template"
 	"io/ioutil"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/Masterminds/semver"
 	git "github.com/go-git/go-git/v5"
@@ -19,11 +19,11 @@ import (
 )
 
 const changelogTemplate = `
-## {{ .Version }}
+## {{ .Version }} ({{ simpleDate .LatestTagCommit.Committer.When }})
 {{ range $type, $commits := .CommitsGrouped }}
-### {{ $type }}
+### {{ mapConvComType $type }}
 {{ range $commit := $commits }}
-* {{ if $commit.Conv.Scope }}__{{ $commit.Conv.Scope }}:__ {{ else }}{{ end }}{{ $commit.Conv.Description }}
+- {{ if $commit.Conv.Scope }}**{{ $commit.Conv.Scope }}:** {{ else }}{{ end }}{{ $commit.Conv.Description }} ({{ commitHash $commit.Git.Hash.String }})
 {{- end }}
 {{ end }}
 `
@@ -51,9 +51,10 @@ type (
 		ChangelogPath   string `flag:"changelog-path" desc:"Changelog file path"`
 	}
 	changelogEntry struct {
-		Version        string
-		Commits        []*changelogCommit
-		CommitsGrouped map[string][]*changelogCommit
+		Version         string
+		LatestTagCommit *object.Commit
+		Commits         []*changelogCommit
+		CommitsGrouped  map[string][]*changelogCommit
 	}
 	changelogCommit struct {
 		Git  *object.Commit
@@ -262,8 +263,6 @@ func changelogUpdate(c *config) error {
 		return err
 	}
 
-	fmt.Println(latestTagName, newVersion)
-
 	convComParser, err := convcom.New(&convcom.Config{})
 	if err != nil {
 		return err
@@ -285,6 +284,9 @@ func changelogUpdate(c *config) error {
 		changelogEntry := &changelogCommit{
 			Git:  commit,
 			Conv: convCommit,
+		}
+		if convCommit.Type == "chore" {
+			return nil
 		}
 		commitType := convCommit.Type
 		if convCommit.IsBreaking {
@@ -310,7 +312,43 @@ func changelogUpdate(c *config) error {
 	}
 
 	// go through the commits and figure out what we need to bump
-	tmpl, err := template.New("changelog").Parse(changelogTemplate)
+	tmpl, err := template.
+		New("changelog").
+		Funcs(template.FuncMap{
+			"simpleDate": func(t time.Time) string {
+				return t.Format("2006-01-02")
+			},
+			"commitHash": func(h string) string {
+				return h[:7]
+			},
+			"mapConvComType": func(t string) string {
+				switch t {
+				case "breaking":
+					return "Breaking Changes"
+				case "fix":
+					return "Bug Fixes"
+				case "feat":
+					return "Features"
+				case "build":
+					return "Build System"
+				case "ci":
+					return "Continuous Integration"
+				case "docs":
+					return "Documentation"
+				case "style":
+					return "Styling"
+				case "refactor":
+					return "Code Refactoring"
+				case "perf":
+					return "Performance Improvements"
+				case "test":
+					return "Tests"
+				default:
+					return t
+				}
+			},
+		}).
+		Parse(changelogTemplate)
 	if err != nil {
 		return err
 	}
@@ -318,9 +356,10 @@ func changelogUpdate(c *config) error {
 	// render template
 	var newBody bytes.Buffer
 	if err := tmpl.Execute(&newBody, &changelogEntry{
-		Version:        newVersion,
-		Commits:        commitsSinceTag,
-		CommitsGrouped: commitsSinceTagGrouped,
+		Version:         newVersion,
+		LatestTagCommit: latestTagCommit,
+		Commits:         commitsSinceTag,
+		CommitsGrouped:  commitsSinceTagGrouped,
 	}); err != nil {
 		return err
 	}
