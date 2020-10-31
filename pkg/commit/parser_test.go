@@ -195,11 +195,16 @@ func Test_paragraph(t *testing.T) {
 			want: [][]byte{[]byte("hello world\nthe brown fox")},
 		},
 		{
+			name: "excess whitespace",
+			args: args{input: []byte(" \n hello world\nthe brown fox \n ")},
+			want: [][]byte{[]byte("hello world\nthe brown fox")},
+		},
+		{
 			name: "multiple paragraphs",
 			args: args{input: []byte(
-				"Lorem ipsum dolor sit amet, consectetur adipiscing elit.\n" +
-					"Praesent eleifend lorem non purus finibus, interdum\n" +
-					"hendrerit sem bibendum.\n" +
+				"Lorem ipsum dolor sit amet, consectetur adipiscing\n" +
+					"elit.Praesent eleifend lorem non purus finibus,\n" +
+					"interdum hendrerit sem bibendum.\n" +
 					"\n" +
 					"Etiam porttitor mollis nulla, egestas facilisis nisi\n" +
 					"molestie ut. Quisque mi mi, commodo ut mattis a,\n" +
@@ -211,9 +216,9 @@ func Test_paragraph(t *testing.T) {
 			)},
 			want: [][]byte{
 				[]byte(
-					"Lorem ipsum dolor sit amet, consectetur adipiscing elit.\n" +
-						"Praesent eleifend lorem non purus finibus, interdum\n" +
-						"hendrerit sem bibendum.",
+					"Lorem ipsum dolor sit amet, consectetur adipiscing\n" +
+						"elit.Praesent eleifend lorem non purus finibus,\n" +
+						"interdum hendrerit sem bibendum.",
 				),
 				[]byte(
 					"Etiam porttitor mollis nulla, egestas facilisis nisi\n" +
@@ -228,11 +233,40 @@ func Test_paragraph(t *testing.T) {
 			},
 		},
 		{
+			name: "paragraphs with surrounding whitespace",
+			args: args{input: []byte(
+				"\n" +
+					" \n" +
+					"   Lorem ipsum dolor sit amet, consectetur adipiscing\n" +
+					"elit.Praesent eleifend lorem non purus finibus,\n" +
+					"interdum hendrerit sem bibendum.  \n" +
+					"\n" +
+					"\n" +
+					"  Etiam porttitor mollis nulla, egestas facilisis nisi\n" +
+					"molestie ut. Quisque mi mi, commodo ut mattis a,\n" +
+					"scelerisque eu elit.\n" +
+					" \n" +
+					" ",
+			)},
+			want: [][]byte{
+				[]byte(
+					"Lorem ipsum dolor sit amet, consectetur adipiscing\n" +
+						"elit.Praesent eleifend lorem non purus finibus,\n" +
+						"interdum hendrerit sem bibendum.",
+				),
+				[]byte(
+					"Etiam porttitor mollis nulla, egestas facilisis nisi\n" +
+						"molestie ut. Quisque mi mi, commodo ut mattis a,\n" +
+						"scelerisque eu elit.",
+				),
+			},
+		},
+		{
 			name: "CRLF line separator",
 			args: args{input: []byte(
-				"Lorem ipsum dolor sit amet, consectetur adipiscing elit.\r\n" +
-					"Praesent eleifend lorem non purus finibus, interdum\r\n" +
-					"hendrerit sem bibendum.\r\n" +
+				"Lorem ipsum dolor sit amet, consectetur adipiscing\r\n" +
+					"elit.Praesent eleifend lorem non purus finibus,\r\n" +
+					"interdum hendrerit sem bibendum.\r\n" +
 					"\r\n" +
 					"Etiam porttitor mollis nulla, egestas facilisis nisi\r\n" +
 					"molestie ut. Quisque mi mi, commodo ut mattis a,\r\n" +
@@ -240,9 +274,9 @@ func Test_paragraph(t *testing.T) {
 			)},
 			want: [][]byte{
 				[]byte(
-					"Lorem ipsum dolor sit amet, consectetur adipiscing elit.\n" +
-						"Praesent eleifend lorem non purus finibus, interdum\n" +
-						"hendrerit sem bibendum.",
+					"Lorem ipsum dolor sit amet, consectetur adipiscing\n" +
+						"elit.Praesent eleifend lorem non purus finibus,\n" +
+						"interdum hendrerit sem bibendum.",
 				),
 				[]byte(
 					"Etiam porttitor mollis nulla, egestas facilisis nisi\n" +
@@ -254,9 +288,9 @@ func Test_paragraph(t *testing.T) {
 		{
 			name: "CR line separator",
 			args: args{input: []byte(
-				"Lorem ipsum dolor sit amet, consectetur adipiscing elit.\r" +
-					"Praesent eleifend lorem non purus finibus, interdum\r" +
-					"hendrerit sem bibendum.\r" +
+				"Lorem ipsum dolor sit amet, consectetur adipiscing\r" +
+					"elit.Praesent eleifend lorem non purus finibus,\r" +
+					"interdum hendrerit sem bibendum.\r" +
 					"\r" +
 					"Etiam porttitor mollis nulla, egestas facilisis nisi\r" +
 					"molestie ut. Quisque mi mi, commodo ut mattis a,\r" +
@@ -264,9 +298,9 @@ func Test_paragraph(t *testing.T) {
 			)},
 			want: [][]byte{
 				[]byte(
-					"Lorem ipsum dolor sit amet, consectetur adipiscing elit.\n" +
-						"Praesent eleifend lorem non purus finibus, interdum\n" +
-						"hendrerit sem bibendum.",
+					"Lorem ipsum dolor sit amet, consectetur adipiscing\n" +
+						"elit.Praesent eleifend lorem non purus finibus,\n" +
+						"interdum hendrerit sem bibendum.",
 				),
 				[]byte(
 					"Etiam porttitor mollis nulla, egestas facilisis nisi\n" +

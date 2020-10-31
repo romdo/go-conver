@@ -34,10 +34,14 @@ func parseHeader(header []byte) (*Commit, error) {
 	}, nil
 }
 
-func paragraphs(input []byte) [][]byte {
-	paras := bytes.Split(normlizeLinefeeds(input), []byte{lf, lf})
+func paragraphs(commitMsg []byte) [][]byte {
+	paras := bytes.Split(
+		bytes.TrimSpace(normlizeLinefeeds(commitMsg)),
+		[]byte{lf, lf},
+	)
+
 	for i, p := range paras {
-		paras[i] = bytes.Trim(p, crlf)
+		paras[i] = bytes.TrimSpace(p)
 	}
 
 	return paras
