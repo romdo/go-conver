@@ -3,11 +3,12 @@
 package commit
 
 type Commit struct {
-	Type        string
-	Scope       string
-	Description string
-	Body        string
-	Footers     []Footer
+	Type       string
+	Scope      string
+	Subject    string
+	Body       string
+	Footers    []*Footer
+	IsBreaking bool
 }
 
 type Footer struct {

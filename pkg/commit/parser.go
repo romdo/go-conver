@@ -1,21 +1,51 @@
 package commit
 
-import "bytes"
-
-const (
-	cr = 13
-	lf = 10
+import (
+	"bytes"
+	"errors"
+	"regexp"
 )
 
-func paragraphs(input []byte) [][]byte {
-	cln := bytes.ReplaceAll(input, []byte{cr, lf}, []byte{lf})
-	cln = bytes.ReplaceAll(cln, []byte{cr}, []byte{lf})
+const (
+	cr   = 13
+	lf   = 10
+	crlf = "\r\n"
+)
 
-	ps := bytes.Split(cln, []byte{lf, lf})
+var rHeader = regexp.MustCompile(
+	`^([\w\-]*)(?:\(([\w\$\.\/\-\* ]*)\))?(!)?\: (.*)$`,
+)
 
-	for i, p := range ps {
-		ps[i] = bytes.Trim(p, "\r\n")
+func parseHeader(header []byte) (*Commit, error) {
+	if bytes.ContainsAny(header, crlf) {
+		return nil, errors.New("header cannot span multiple lines")
 	}
 
-	return ps
+	result := rHeader.FindSubmatch(header)
+	if result == nil {
+		return &Commit{Subject: string(header)}, nil
+	}
+
+	return &Commit{
+		Type:       string(result[1]),
+		Scope:      string(result[2]),
+		Subject:    string(result[4]),
+		IsBreaking: (string(result[3]) == "!"),
+	}, nil
+}
+
+func paragraphs(input []byte) [][]byte {
+	paras := bytes.Split(normlizeLinefeeds(input), []byte{lf, lf})
+	for i, p := range paras {
+		paras[i] = bytes.Trim(p, crlf)
+	}
+
+	return paras
+}
+
+func normlizeLinefeeds(input []byte) []byte {
+	return bytes.ReplaceAll(
+		bytes.ReplaceAll(input, []byte{cr, lf}, []byte{lf}),
+		[]byte{cr}, []byte{lf},
+	)
 }
