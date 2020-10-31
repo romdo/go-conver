@@ -1,0 +1,60 @@
+---
+name: CI
+on: [push]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v2
+        with:
+          version: v1.31
+        env:
+          VERBOSE: "true"
+
+  tidy:
+    name: Tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v2
+        with:
+          go-version: 1.15
+      - name: Check if mods are tidy
+        run: make check-tidy
+
+  cov:
+    name: Code coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v2
+        with:
+          go-version: 1.15
+      - name: Publish coverage
+        uses: paambaati/codeclimate-action@v2.7.4
+        with:
+          coverageCommand: make cov
+          prefix: github.com/${{ github.repository }}
+          coverageLocations: |
+            ${{ github.workspace }}/coverage.out:gocov
+        env:
+          VERBOSE: "true"
+          GOMAXPROCS: 4
+          CC_TEST_REPORTER_ID: ${{ secrets.CC_TEST_REPORTER_ID }}
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v2
+        with:
+          go-version: 1.15
+      - name: Run tests
+        run: make test
+        env:
+          VERBOSE: "true"

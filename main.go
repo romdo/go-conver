@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"errors"
 	"flag"
+	"fmt"
 	"html/template"
 	"io/ioutil"
 	"log"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +30,12 @@ const changelogTemplate = `
 {{- end }}
 {{ end }}
 `
+
+var (
+	Version string
+	Commit  string
+	Date    string
+)
 
 type (
 	config struct {
@@ -49,6 +58,8 @@ type (
 		// changelog config
 		ChangelogUpdate bool   `flag:"changelog-update" desc:"Update changelog"`
 		ChangelogPath   string `flag:"changelog-path" desc:"Changelog file path"`
+
+		PrintVersion bool `flag:"version" desc:"print version"`
 	}
 	changelogEntry struct {
 		Version         string
@@ -374,7 +385,7 @@ func changelogUpdate(c *config) error {
 	mergedBody := append(newBody.Bytes(), changelogBody...)
 
 	// and update file
-	return ioutil.WriteFile(c.ChangelogPath, mergedBody, 0644)
+	return ioutil.WriteFile(c.ChangelogPath, mergedBody, 0o644)
 }
 
 func fileUpdate(c *config) error {
@@ -394,7 +405,7 @@ func fileUpdate(c *config) error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(c.FilePath, []byte(newVersion), 0644)
+	return ioutil.WriteFile(c.FilePath, []byte(newVersion), 0o644)
 }
 
 func bumpAtLeastMinor(c *config) error {
@@ -423,6 +434,16 @@ func bumpVersion(currentVersion string, c *config) (string, error) {
 	return c.VersionPrefix + cleanNewVersion.String(), nil
 }
 
+func printVersion() {
+	if Date != "" {
+		ts, err := strconv.Atoi(Date)
+		if err == nil {
+			Date = time.Unix(int64(ts), 0).UTC().String()
+		}
+	}
+	fmt.Printf("conver %s (%s, %s)\n", Version, Commit, Date)
+}
+
 func main() {
 	c := &config{
 		FilePath:      "VERSION",
@@ -434,6 +455,11 @@ func main() {
 		log.Fatalf("err: %v", err)
 	}
 	flag.Parse()
+
+	if c.PrintVersion {
+		printVersion()
+		os.Exit(0)
+	}
 
 	actions := []func(*config) error{
 		autodetectBump,
