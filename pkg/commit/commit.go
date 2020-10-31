@@ -12,6 +12,7 @@ type Commit struct {
 }
 
 type Footer struct {
-	Name string
-	Body string
+	Name      string
+	Body      string
+	Reference bool
 }

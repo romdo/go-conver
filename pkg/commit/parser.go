@@ -12,8 +12,16 @@ const (
 	crlf = "\r\n"
 )
 
-var rHeader = regexp.MustCompile(
-	`^([\w\-]*)(?:\(([\w\$\.\/\-\* ]*)\))?(!)?\: (.*)$`,
+var (
+	rHeader = regexp.MustCompile(
+		`^([\w\-]*)(?:\(([\w\$\.\/\-\* ]*)\))?(!)?\: (.*)$`,
+	)
+	rFooterToken = regexp.MustCompile(
+		`^([\w-]+|BREAKING CHANGE):\s\s*(.*)$`,
+	)
+	rFooterTicket = regexp.MustCompile(
+		`^([\w-]+)\s+(#\S.*)$`,
+	)
 )
 
 func parseHeader(header []byte) (*Commit, error) {
@@ -32,6 +40,61 @@ func parseHeader(header []byte) (*Commit, error) {
 		Subject:    string(result[4]),
 		IsBreaking: (string(result[3]) == "!"),
 	}, nil
+}
+
+func footers(paragraph []byte) []*Footer {
+	footers := []*Footer{}
+	lines := bytes.Split(paragraph, []byte{lf})
+
+	if !rFooterToken.Match(lines[0]) && !rFooterTicket.Match(lines[0]) {
+		return footers
+	}
+
+	var cName string
+	var cBody []byte
+	var cRef bool
+	for _, line := range lines {
+		if m := rFooterToken.FindSubmatch(line); m != nil {
+			if cName != "" {
+				footers = append(footers, &Footer{
+					Name:      cName,
+					Body:      string(bytes.TrimSpace(cBody)),
+					Reference: cRef,
+				})
+				cName = ""
+				cRef = false
+			}
+			cName = string(m[1])
+			cBody = m[2]
+			cRef = false
+		} else if m := rFooterTicket.FindSubmatch(line); m != nil {
+			if cName != "" {
+				footers = append(footers, &Footer{
+					Name:      cName,
+					Body:      string(bytes.TrimSpace(cBody)),
+					Reference: cRef,
+				})
+				cName = ""
+				cRef = false
+			}
+			cName = string(m[1])
+			cBody = m[2]
+			cRef = true
+		} else {
+			cBody = append(cBody, []byte{lf}...)
+			cBody = append(cBody, line...)
+		}
+	}
+
+	if cName != "" {
+		footers = append(footers, &Footer{
+			Name:      cName,
+			Body:      string(bytes.TrimSpace(cBody)),
+			Reference: cRef,
+		})
+	}
+
+	return footers
 }
 
 func paragraphs(commitMsg []byte) [][]byte {

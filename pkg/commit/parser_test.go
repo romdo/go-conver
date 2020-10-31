@@ -175,6 +175,139 @@ func Test_parseHeader(t *testing.T) {
 	}
 }
 
+func Test_footers(t *testing.T) {
+	type args struct {
+		paragraph []byte
+	}
+	tests := []struct {
+		name string
+		args args
+		want []*Footer
+	}{
+		{
+			name: "without footer",
+			args: args{[]byte("this is not a fooder")},
+			want: []*Footer{},
+		},
+		{
+			name: "token footer on second line",
+			args: args{[]byte("this is not a fooder\nDone-By: John")},
+			want: []*Footer{},
+		},
+		{
+			name: "ticket footer on second line",
+			args: args{[]byte("this is not a fooder\nFixes #42")},
+			want: []*Footer{},
+		},
+		{
+			name: "breaking change footer on second line",
+			args: args{[]byte("this is not a fooder\nBREAKING CHANGE: Oops")},
+			want: []*Footer{},
+		},
+		{
+			name: "token footer",
+			args: args{[]byte("Reviewed-By: John Smith")},
+			want: []*Footer{{Name: "Reviewed-By", Body: "John Smith"}},
+		},
+		{
+			name: "breaking change footer",
+			args: args{[]byte("BREAKING CHANGE: Oopsy")},
+			want: []*Footer{{Name: "BREAKING CHANGE", Body: "Oopsy"}},
+		},
+		{
+			name: "ticket footer",
+			args: args{[]byte("Fixes #82")},
+			want: []*Footer{{Name: "Fixes", Body: "#82", Reference: true}},
+		},
+		{
+			name: "multiple token footers",
+			args: args{[]byte(
+				"Reviewed-By: John\n" +
+					"Committer: Smith\n",
+			)},
+			want: []*Footer{
+				{Name: "Reviewed-By", Body: "John"},
+				{Name: "Committer", Body: "Smith"},
+			},
+		},
+		{
+			name: "multiple ticket footers",
+			args: args{[]byte("Fixes #82\nFixes #74")},
+			want: []*Footer{
+				{Name: "Fixes", Body: "#82", Reference: true},
+				{Name: "Fixes", Body: "#74", Reference: true},
+			},
+		},
+		{
+			name: "multiple breaking change footers",
+			args: args{[]byte(
+				"BREAKING CHANGE: Oopsy\n" +
+					"BREAKING CHANGE: Again!",
+			)},
+			want: []*Footer{
+				{Name: "BREAKING CHANGE", Body: "Oopsy"},
+				{Name: "BREAKING CHANGE", Body: "Again!"},
+			},
+		},
+		{
+			name: "mixture of footer types",
+			args: args{[]byte(
+				"Fixes #930\n" +
+					"BREAKING CHANGE: Careful!\n" +
+					"Reviewed-By: Maria\n",
+			)},
+			want: []*Footer{
+				{Name: "Fixes", Body: "#930", Reference: true},
+				{Name: "BREAKING CHANGE", Body: "Careful!"},
+				{Name: "Reviewed-By", Body: "Maria"},
+			},
+		},
+		{
+			name: "multi-line footers",
+			args: args{[]byte(
+				"Description: Lorem ipsum dolor sit amet, consectetur\n" +
+					"adipiscing elit.Praesent eleifend lorem non purus\n" +
+					"finibus, interdum hendrerit sem bibendum.\n" +
+					"Fixes #94\n" +
+					"Misc-Other: Etiam porttitor mollis nulla, egestas\n" +
+					"facilisis nisi molestie ut. Quisque mi mi, commodo\n" +
+					"ut mattis a, scelerisque eu elit.\n" +
+					"BREAKING CHANGE: Duis id nulla eget velit maximus\n" +
+					"varius et egestas sem. Ut mi risus, pretium quis\n" +
+					"cursus quis, porttitor in ipsum.\n",
+			)},
+			want: []*Footer{
+				{
+					Name: "Description",
+					Body: "Lorem ipsum dolor sit amet, consectetur\n" +
+						"adipiscing elit.Praesent eleifend lorem non purus\n" +
+						"finibus, interdum hendrerit sem bibendum.",
+				},
+				{Name: "Fixes", Body: "#94", Reference: true},
+				{
+					Name: "Misc-Other",
+					Body: "Etiam porttitor mollis nulla, egestas\n" +
+						"facilisis nisi molestie ut. Quisque mi mi, commodo\n" +
+						"ut mattis a, scelerisque eu elit.",
+				},
+				{
+					Name: "BREAKING CHANGE",
+					Body: "Duis id nulla eget velit maximus\n" +
+						"varius et egestas sem. Ut mi risus, pretium quis\n" +
+						"cursus quis, porttitor in ipsum.",
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := footers(tt.args.paragraph)
+
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func Test_paragraph(t *testing.T) {
 	type args struct {
 		input []byte
