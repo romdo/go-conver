@@ -16,11 +16,8 @@ var (
 	rHeader = regexp.MustCompile(
 		`^([\w\-]*)(?:\(([\w\$\.\/\-\* ]*)\))?(!)?\: (.*)$`,
 	)
-	rFooterToken = regexp.MustCompile(
-		`^([\w-]+|BREAKING CHANGE):\s\s*(.*)$`,
-	)
-	rFooterTicket = regexp.MustCompile(
-		`^([\w-]+)\s+(#\S.*)$`,
+	rFooter = regexp.MustCompile(
+		`^([\w-]+)\s+(#.*)|([\w-]+|BREAKING CHANGE):\s\s*(.*)$`,
 	)
 )
 
@@ -46,7 +43,7 @@ func footers(paragraph []byte) []*Footer {
 	footers := []*Footer{}
 	lines := bytes.Split(paragraph, []byte{lf})
 
-	if !rFooterToken.Match(lines[0]) && !rFooterTicket.Match(lines[0]) {
+	if !rFooter.Match(lines[0]) {
 		return footers
 	}
 
@@ -54,34 +51,25 @@ func footers(paragraph []byte) []*Footer {
 	var cBody []byte
 	var cRef bool
 	for _, line := range lines {
-		if m := rFooterToken.FindSubmatch(line); m != nil {
+		if m := rFooter.FindSubmatch(line); m != nil {
 			if cName != "" {
 				footers = append(footers, &Footer{
 					Name:      cName,
 					Body:      string(bytes.TrimSpace(cBody)),
 					Reference: cRef,
 				})
-				cName = ""
+			}
+			if len(m[1]) > 0 {
+				cName = string(m[1])
+				cBody = m[2]
+				cRef = true
+			} else if len(m[3]) > 0 {
+				cName = string(m[3])
+				cBody = m[4]
 				cRef = false
 			}
-			cName = string(m[1])
-			cBody = m[2]
-			cRef = false
-		} else if m := rFooterTicket.FindSubmatch(line); m != nil {
-			if cName != "" {
-				footers = append(footers, &Footer{
-					Name:      cName,
-					Body:      string(bytes.TrimSpace(cBody)),
-					Reference: cRef,
-				})
-				cName = ""
-				cRef = false
-			}
-			cName = string(m[1])
-			cBody = m[2]
-			cRef = true
-		} else {
-			cBody = append(cBody, []byte{lf}...)
+		} else if cName != "" {
+			cBody = append(cBody, lf)
 			cBody = append(cBody, line...)
 		}
 	}
