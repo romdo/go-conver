@@ -98,7 +98,7 @@ test:
 	go test $(V) -count=1 --race ./...
 
 .PHONY: lint
-lint: $(TOOLS)
+lint: golangci-lint
 	$(info Running Go linters)
 	GOGC=off golangci-lint $(V) run
 
