@@ -1,6 +1,7 @@
 package commit
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,11 +16,22 @@ func Test_parseHeader(t *testing.T) {
 		args   args
 		want   *Commit
 		errStr string
+		errIs  []error
 	}{
 		{
-			name: "non-convention commit",
-			args: args{header: []byte("add user sorting option")},
-			want: &Commit{Subject: "add user sorting option"},
+			name:  "missing type",
+			args:  args{header: []byte("add user sorting option")},
+			want:  &Commit{Subject: "add user sorting option"},
+			errIs: []error{Err, ErrTypeMissing},
+		},
+		{
+			name: "missing type with scope",
+			args: args{
+				header: []byte("(user): add user sorting option"),
+			},
+			want:   &Commit{Scope: "user", Subject: "add user sorting option"},
+			errStr: `type is missing`,
+			errIs:  []error{Err, ErrType, ErrTypeMissing},
 		},
 		{
 			name: "type only",
@@ -148,18 +160,103 @@ func Test_parseHeader(t *testing.T) {
 			},
 		},
 		{
+			name: "excess whitespace in type with scope",
+			args: args{
+				header: []byte("  feat  (user sort): add user sorting option"),
+			},
+			want: &Commit{
+				Type:    "feat",
+				Scope:   "user sort",
+				Subject: "add user sorting option",
+			},
+		},
+		{
+			name: "excess whitespace in scope",
+			args: args{
+				header: []byte("feat(  user sort ): add user sorting option"),
+			},
+			want: &Commit{
+				Type:    "feat",
+				Scope:   "user sort",
+				Subject: "add user sorting option",
+			},
+		},
+		{
+			name: "excess whitespace in subject",
+			args: args{
+				header: []byte("feat(user):   add user sorting option  "),
+			},
+			want: &Commit{
+				Type:    "feat",
+				Scope:   "user",
+				Subject: "add user sorting option",
+			},
+		},
+		{
+			name: "empty scope",
+			args: args{
+				header: []byte("feat(): add user sorting option"),
+			},
+			want: &Commit{
+				Type:    "feat",
+				Subject: "add user sorting option",
+			},
+		},
+		{
 			name: "multi-line header (LF)",
 			args: args{
-				header: []byte("feat(user)!: add usersorting\noption"),
+				header: []byte("feat(user)!: add user sorting\nnoption"),
 			},
-			errStr: "header cannot span multiple lines",
+			want:   &Commit{},
+			errStr: "invalid format: header has multiple lines",
+			errIs:  []error{ErrFormat, ErrMultiLineHeader},
 		},
 		{
 			name: "multi-line header (CR)",
 			args: args{
-				header: []byte("feat(user)!: add usersorting\roption"),
+				header: []byte("feat(user)!: add user sorting\roption"),
 			},
-			errStr: "header cannot span multiple lines",
+			want:   &Commit{},
+			errStr: "invalid format: header has multiple lines",
+			errIs:  []error{Err, ErrFormat, ErrMultiLineHeader},
+		},
+		{
+			name: "invalid type character",
+			args: args{
+				header: []byte("feat/internal: add user sorting option"),
+			},
+			want: &Commit{
+				Type:    "feat/internal",
+				Subject: "add user sorting option",
+			},
+			errStr: `type must match: ^[\w-]+$`,
+			errIs:  []error{Err, ErrType, ErrTypeFormat},
+		},
+		{
+			name: "invalid type character with scope",
+			args: args{
+				header: []byte("feat/internal(user): add user sorting option"),
+			},
+			want: &Commit{
+				Type:    "feat/internal",
+				Scope:   "user",
+				Subject: "add user sorting option",
+			},
+			errStr: `type must match: ^[\w-]+$`,
+			errIs:  []error{Err, ErrType, ErrTypeFormat},
+		},
+		{
+			name: "invalid scope character",
+			args: args{
+				header: []byte("feat(user#sort): add user sorting option"),
+			},
+			want: &Commit{
+				Type:    "feat",
+				Scope:   "user#sort",
+				Subject: "add user sorting option",
+			},
+			errStr: `scope must match: ^[\w\$\.\/\-\* ]+$`,
+			errIs:  []error{Err, ErrScope, ErrScopeFormat},
 		},
 	}
 	for _, tt := range tests {
@@ -167,10 +264,20 @@ func Test_parseHeader(t *testing.T) {
 			got, err := parseHeader(tt.args.header)
 
 			if tt.errStr != "" {
-				assert.Error(t, err, tt.errStr)
-			} else {
-				assert.Equal(t, tt.want, got)
+				assert.EqualError(t, err, tt.errStr)
 			}
+
+			if len(tt.errIs) > 0 {
+				for _, errIs := range tt.errIs {
+					assert.True(t, errors.Is(err, errIs))
+				}
+			}
+
+			if len(tt.errIs) == 0 && tt.errStr == "" {
+				assert.NoError(t, err)
+			}
+
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

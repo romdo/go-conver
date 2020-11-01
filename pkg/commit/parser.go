@@ -3,6 +3,7 @@ package commit
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"regexp"
 )
 
@@ -10,33 +11,64 @@ const (
 	cr   = 13
 	lf   = 10
 	crlf = "\r\n"
+
+	typeMatch  = `^[\w-]+$`
+	scopeMatch = `^[\w\$\.\/\-\* ]+$`
 )
 
 var (
 	rHeader = regexp.MustCompile(
-		`^([\w\-]*)(?:\(([\w\$\.\/\-\* ]*)\))?(!)?\: (.*)$`,
+		`^([^\(\)]*?)(\((.*?)\))?(!)?\:\s+(.*)$`,
 	)
 	rFooter = regexp.MustCompile(
-		`^([\w-]+)\s+(#.*)|([\w-]+|BREAKING CHANGE):\s\s*(.*)$`,
+		`^([\w-]+)\s+(#.*)|([\w-]+|BREAKING CHANGE):\s+(.*)$`,
 	)
+	rType  = regexp.MustCompile(typeMatch)
+	rScope = regexp.MustCompile(scopeMatch)
+
+	Err = errors.New("")
+
+	ErrFormat          = fmt.Errorf("%winvalid format", Err)
+	ErrMultiLineHeader = fmt.Errorf("%w: header has multiple lines", ErrFormat)
+
+	ErrType        = fmt.Errorf("%wtype", Err)
+	ErrTypeFormat  = fmt.Errorf("%w must match: %s", ErrType, typeMatch)
+	ErrTypeMissing = fmt.Errorf("%w is missing", ErrType)
+
+	ErrScope       = fmt.Errorf("%wscope", Err)
+	ErrScopeFormat = fmt.Errorf("%w must match: %s", ErrScope, scopeMatch)
 )
 
 func parseHeader(header []byte) (*Commit, error) {
+	commit := &Commit{}
+
 	if bytes.ContainsAny(header, crlf) {
-		return nil, errors.New("header cannot span multiple lines")
+		return commit, ErrMultiLineHeader
 	}
 
 	result := rHeader.FindSubmatch(header)
 	if result == nil {
-		return &Commit{Subject: string(header)}, nil
+		commit = &Commit{Subject: string(header)}
+	} else {
+		commit = &Commit{
+			Type:       string(bytes.TrimSpace(result[1])),
+			Scope:      string(bytes.TrimSpace(result[3])),
+			Subject:    string(bytes.TrimSpace(result[5])),
+			IsBreaking: string(result[4]) == "!",
+		}
 	}
 
-	return &Commit{
-		Type:       string(result[1]),
-		Scope:      string(result[2]),
-		Subject:    string(result[4]),
-		IsBreaking: (string(result[3]) == "!"),
-	}, nil
+	if commit.Type == "" {
+		return commit, ErrTypeMissing
+	} else if !rType.MatchString(commit.Type) {
+		return commit, ErrTypeFormat
+	}
+
+	if len(commit.Scope) > 0 && !rScope.MatchString(commit.Scope) {
+		return commit, ErrScopeFormat
+	}
+
+	return commit, nil
 }
 
 func footers(paragraph []byte) []*Footer {
