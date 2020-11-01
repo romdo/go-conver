@@ -289,42 +289,48 @@ func Test_footers(t *testing.T) {
 	tests := []struct {
 		name string
 		args args
-		want []*Footer
+		want []*rawFooter
 	}{
 		{
 			name: "without footer",
 			args: args{[]byte("this is not a fooder")},
-			want: []*Footer{},
+			want: []*rawFooter{},
 		},
 		{
 			name: "token footer on second line",
 			args: args{[]byte("this is not a fooder\nDone-By: John")},
-			want: []*Footer{},
+			want: []*rawFooter{},
 		},
 		{
 			name: "ticket footer on second line",
 			args: args{[]byte("this is not a fooder\nFixes #42")},
-			want: []*Footer{},
+			want: []*rawFooter{},
 		},
 		{
 			name: "breaking change footer on second line",
 			args: args{[]byte("this is not a fooder\nBREAKING CHANGE: Oops")},
-			want: []*Footer{},
+			want: []*rawFooter{},
 		},
 		{
 			name: "token footer",
 			args: args{[]byte("Reviewed-By: John Smith")},
-			want: []*Footer{{Name: "Reviewed-By", Body: "John Smith"}},
+			want: []*rawFooter{
+				{Name: []byte("Reviewed-By"), Body: []byte("John Smith")},
+			},
 		},
 		{
 			name: "breaking change footer",
 			args: args{[]byte("BREAKING CHANGE: Oopsy")},
-			want: []*Footer{{Name: "BREAKING CHANGE", Body: "Oopsy"}},
+			want: []*rawFooter{
+				{Name: []byte("BREAKING CHANGE"), Body: []byte("Oopsy")},
+			},
 		},
 		{
 			name: "ticket footer",
 			args: args{[]byte("Fixes #82")},
-			want: []*Footer{{Name: "Fixes", Body: "#82", Reference: true}},
+			want: []*rawFooter{
+				{Name: []byte("Fixes"), Body: []byte("#82"), Ref: true},
+			},
 		},
 		{
 			name: "multiple token footers",
@@ -332,17 +338,17 @@ func Test_footers(t *testing.T) {
 				"Reviewed-By: John\n" +
 					"Committer: Smith\n",
 			)},
-			want: []*Footer{
-				{Name: "Reviewed-By", Body: "John"},
-				{Name: "Committer", Body: "Smith"},
+			want: []*rawFooter{
+				{Name: []byte("Reviewed-By"), Body: []byte("John")},
+				{Name: []byte("Committer"), Body: []byte("Smith")},
 			},
 		},
 		{
 			name: "multiple ticket footers",
 			args: args{[]byte("Fixes #82\nFixes #74")},
-			want: []*Footer{
-				{Name: "Fixes", Body: "#82", Reference: true},
-				{Name: "Fixes", Body: "#74", Reference: true},
+			want: []*rawFooter{
+				{Name: []byte("Fixes"), Body: []byte("#82"), Ref: true},
+				{Name: []byte("Fixes"), Body: []byte("#74"), Ref: true},
 			},
 		},
 		{
@@ -351,9 +357,9 @@ func Test_footers(t *testing.T) {
 				"BREAKING CHANGE: Oopsy\n" +
 					"BREAKING CHANGE: Again!",
 			)},
-			want: []*Footer{
-				{Name: "BREAKING CHANGE", Body: "Oopsy"},
-				{Name: "BREAKING CHANGE", Body: "Again!"},
+			want: []*rawFooter{
+				{Name: []byte("BREAKING CHANGE"), Body: []byte("Oopsy")},
+				{Name: []byte("BREAKING CHANGE"), Body: []byte("Again!")},
 			},
 		},
 		{
@@ -363,10 +369,10 @@ func Test_footers(t *testing.T) {
 					"BREAKING CHANGE: Careful!\n" +
 					"Reviewed-By: Maria\n",
 			)},
-			want: []*Footer{
-				{Name: "Fixes", Body: "#930", Reference: true},
-				{Name: "BREAKING CHANGE", Body: "Careful!"},
-				{Name: "Reviewed-By", Body: "Maria"},
+			want: []*rawFooter{
+				{Name: []byte("Fixes"), Body: []byte("#930"), Ref: true},
+				{Name: []byte("BREAKING CHANGE"), Body: []byte("Careful!")},
+				{Name: []byte("Reviewed-By"), Body: []byte("Maria")},
 			},
 		},
 		{
@@ -383,25 +389,25 @@ func Test_footers(t *testing.T) {
 					"varius et egestas sem. Ut mi risus, pretium quis\n" +
 					"cursus quis, porttitor in ipsum.\n",
 			)},
-			want: []*Footer{
+			want: []*rawFooter{
 				{
-					Name: "Description",
-					Body: "Lorem ipsum dolor sit amet, consectetur\n" +
+					Name: []byte("Description"),
+					Body: []byte("Lorem ipsum dolor sit amet, consectetur\n" +
 						"adipiscing elit.Praesent eleifend lorem non purus\n" +
-						"finibus, interdum hendrerit sem bibendum.",
+						"finibus, interdum hendrerit sem bibendum."),
 				},
-				{Name: "Fixes", Body: "#94", Reference: true},
+				{Name: []byte("Fixes"), Body: []byte("#94"), Ref: true},
 				{
-					Name: "Misc-Other",
-					Body: "Etiam porttitor mollis nulla, egestas\n" +
+					Name: []byte("Misc-Other"),
+					Body: []byte("Etiam porttitor mollis nulla, egestas\n" +
 						"facilisis nisi molestie ut. Quisque mi mi, commodo\n" +
-						"ut mattis a, scelerisque eu elit.",
+						"ut mattis a, scelerisque eu elit."),
 				},
 				{
-					Name: "BREAKING CHANGE",
-					Body: "Duis id nulla eget velit maximus\n" +
+					Name: []byte("BREAKING CHANGE"),
+					Body: []byte("Duis id nulla eget velit maximus\n" +
 						"varius et egestas sem. Ut mi risus, pretium quis\n" +
-						"cursus quis, porttitor in ipsum.",
+						"cursus quis, porttitor in ipsum."),
 				},
 			},
 		},

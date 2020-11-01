@@ -71,47 +71,45 @@ func parseHeader(header []byte) (*Commit, error) {
 	return commit, nil
 }
 
-func footers(paragraph []byte) []*Footer {
-	footers := []*Footer{}
-	lines := bytes.Split(paragraph, []byte{lf})
+type rawFooter struct {
+	Name []byte
+	Body []byte
+	Ref  bool
+}
+
+func footers(paragraph []byte) []*rawFooter {
+	footers := []*rawFooter{}
+	lines := bytes.Split(bytes.TrimSpace(paragraph), []byte{lf})
 
 	if !rFooter.Match(lines[0]) {
 		return footers
 	}
 
-	var cName string
-	var cBody []byte
-	var cRef bool
+	footer := &rawFooter{}
 	for _, line := range lines {
 		if m := rFooter.FindSubmatch(line); m != nil {
-			if cName != "" {
-				footers = append(footers, &Footer{
-					Name:      cName,
-					Body:      string(bytes.TrimSpace(cBody)),
-					Reference: cRef,
-				})
+			if len(footer.Name) > 0 {
+				footers = append(footers, footer)
 			}
+
+			footer = &rawFooter{}
 			if len(m[1]) > 0 {
-				cName = string(m[1])
-				cBody = m[2]
-				cRef = true
+				footer.Name = m[1]
+				footer.Body = m[2]
+				footer.Ref = true
 			} else if len(m[3]) > 0 {
-				cName = string(m[3])
-				cBody = m[4]
-				cRef = false
+				footer.Name = m[3]
+				footer.Body = m[4]
+				footer.Ref = false
 			}
-		} else if cName != "" {
-			cBody = append(cBody, lf)
-			cBody = append(cBody, line...)
+		} else if len(footer.Name) > 0 {
+			footer.Body = append(footer.Body, lf)
+			footer.Body = append(footer.Body, line...)
 		}
 	}
 
-	if cName != "" {
-		footers = append(footers, &Footer{
-			Name:      cName,
-			Body:      string(bytes.TrimSpace(cBody)),
-			Reference: cRef,
-		})
+	if len(footer.Name) > 0 {
+		footers = append(footers, footer)
 	}
 
 	return footers
