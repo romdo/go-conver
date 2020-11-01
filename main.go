@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"errors"
 	"flag"
+	"fmt"
 	"html/template"
 	"io/ioutil"
 	"log"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +21,7 @@ import (
 	convcom "github.com/wfscheper/convcom"
 )
 
+//nolint: lll
 const changelogTemplate = `
 ## {{ .Version }} ({{ simpleDate .LatestTagCommit.Committer.When }})
 {{ range $type, $commits := .CommitsGrouped }}
@@ -27,6 +31,12 @@ const changelogTemplate = `
 {{- end }}
 {{ end }}
 `
+
+var (
+	Version string
+	Commit  string
+	Date    string
+)
 
 type (
 	config struct {
@@ -49,6 +59,8 @@ type (
 		// changelog config
 		ChangelogUpdate bool   `flag:"changelog-update" desc:"Update changelog"`
 		ChangelogPath   string `flag:"changelog-path" desc:"Changelog file path"`
+
+		PrintVersion bool `flag:"version" desc:"print version"`
 	}
 	changelogEntry struct {
 		Version         string
@@ -86,9 +98,13 @@ func autodetectBump(c *config) error {
 	// find the latest tag
 	var latestTagCommit *object.Commit
 	tagRefs, err := repo.Tags()
+	if err != nil {
+		return err
+	}
+
 	err = tagRefs.ForEach(func(tagRef *plumbing.Reference) error {
 		rev := plumbing.Revision(tagRef.Name().String())
-		tagCommitHash, err := repo.ResolveRevision(rev)
+		tagCommitHash, err := repo.ResolveRevision(rev) //nolint:govet
 		if err != nil {
 			return err
 		}
@@ -102,6 +118,7 @@ func autodetectBump(c *config) error {
 		if commit.Committer.When.After(latestTagCommit.Committer.When) {
 			latestTagCommit = commit
 		}
+
 		return nil
 	})
 	if err != nil && err != errDone {
@@ -111,12 +128,17 @@ func autodetectBump(c *config) error {
 	// find commits since the latest tag
 	commitsSinceTag := []*object.Commit{}
 	commitIter, err := repo.Log(&git.LogOptions{})
+	if err != nil {
+		return err
+	}
+
 	err = commitIter.ForEach(func(commit *object.Commit) error {
 		// once we reach the commit of the latest tag, we're done
 		if commit.Hash == latestTagCommit.Hash {
 			return errDone
 		}
 		commitsSinceTag = append(commitsSinceTag, commit)
+
 		return nil
 	})
 	if err != nil && err != errDone {
@@ -133,8 +155,7 @@ func autodetectBump(c *config) error {
 	c.BumpMinor = false
 	c.BumpPatch = false
 	for _, commit := range commitsSinceTag {
-		switch {
-		case strings.Contains(commit.Message, "BREAKING"):
+		if strings.Contains(commit.Message, "BREAKING") {
 			c.BumpMajor = true
 		}
 	}
@@ -164,9 +185,13 @@ func gitTagUpdate(c *config) error {
 	var latestTagCommit *object.Commit
 	var latestTagName string
 	tagRefs, err := repo.Tags()
+	if err != nil {
+		return err
+	}
+
 	err = tagRefs.ForEach(func(tagRef *plumbing.Reference) error {
 		rev := plumbing.Revision(tagRef.Name().String())
-		tagCommitHash, err := repo.ResolveRevision(rev)
+		tagCommitHash, err := repo.ResolveRevision(rev) //nolint: govet
 		if err != nil {
 			return err
 		}
@@ -182,6 +207,7 @@ func gitTagUpdate(c *config) error {
 			latestTagCommit = commit
 			latestTagName = tagRef.Name().Short()
 		}
+
 		return nil
 	})
 	if err != nil && err != errDone {
@@ -200,13 +226,17 @@ func gitTagUpdate(c *config) error {
 	}
 
 	// create new tag
-	repo.CreateTag(newVersion, head.Hash(), &git.CreateTagOptions{
+	_, err = repo.CreateTag(newVersion, head.Hash(), &git.CreateTagOptions{
 		Message: "chore(version): bump version to " + newVersion,
 	})
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
-func changelogUpdate(c *config) error {
+func changelogUpdate(c *config) error { //nolint: funlen,gocyclo
 	// check if we are updating changelog
 	if !c.ChangelogUpdate {
 		return nil
@@ -228,9 +258,13 @@ func changelogUpdate(c *config) error {
 	var latestTagCommit *object.Commit
 	var latestTagName string
 	tagRefs, err := repo.Tags()
+	if err != nil {
+		return err
+	}
+
 	err = tagRefs.ForEach(func(tagRef *plumbing.Reference) error {
 		rev := plumbing.Revision(tagRef.Name().String())
-		tagCommitHash, err := repo.ResolveRevision(rev)
+		tagCommitHash, err := repo.ResolveRevision(rev) //nolint: govet
 		if err != nil {
 			return err
 		}
@@ -246,6 +280,7 @@ func changelogUpdate(c *config) error {
 			latestTagCommit = commit
 			latestTagName = tagRef.Name().Short()
 		}
+
 		return nil
 	})
 	if err != nil && err != errDone {
@@ -272,12 +307,16 @@ func changelogUpdate(c *config) error {
 	commitsSinceTag := []*changelogCommit{}
 	commitsSinceTagGrouped := map[string][]*changelogCommit{}
 	commitIter, err := repo.Log(&git.LogOptions{})
+	if err != nil {
+		return err
+	}
+
 	err = commitIter.ForEach(func(commit *object.Commit) error {
 		// once we reach the commit of the latest tag, we're done
 		if commit.Hash == latestTagCommit.Hash {
 			return errDone
 		}
-		convCommit, err := convComParser.Parse(commit.Message)
+		convCommit, err := convComParser.Parse(commit.Message) //nolint: govet
 		if err != nil {
 			return err
 		}
@@ -300,6 +339,7 @@ func changelogUpdate(c *config) error {
 			commitsSinceTagGrouped[commitType],
 			changelogEntry,
 		)
+
 		return nil
 	})
 	if err != nil && err != errDone {
@@ -355,12 +395,13 @@ func changelogUpdate(c *config) error {
 
 	// render template
 	var newBody bytes.Buffer
-	if err := tmpl.Execute(&newBody, &changelogEntry{
+	err = tmpl.Execute(&newBody, &changelogEntry{
 		Version:         newVersion,
 		LatestTagCommit: latestTagCommit,
 		Commits:         commitsSinceTag,
 		CommitsGrouped:  commitsSinceTagGrouped,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 
@@ -374,19 +415,20 @@ func changelogUpdate(c *config) error {
 	mergedBody := append(newBody.Bytes(), changelogBody...)
 
 	// and update file
-	return ioutil.WriteFile(c.ChangelogPath, mergedBody, 0644)
+	return ioutil.WriteFile(c.ChangelogPath, mergedBody, 0o644) //nolint: gosec
 }
 
 func fileUpdate(c *config) error {
 	if !c.FileUpdate {
 		return nil
 	}
-	currentVersion := "0.0.0"
+
 	versionFileBody, err := ioutil.ReadFile(c.FilePath)
 	if err != nil {
 		return err
 	}
-	currentVersion = string(versionFileBody)
+
+	currentVersion := string(versionFileBody)
 	if currentVersion == "" {
 		currentVersion = c.VersionPrefix + "0.0.0"
 	}
@@ -394,13 +436,16 @@ func fileUpdate(c *config) error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(c.FilePath, []byte(newVersion), 0644)
+
+	//nolint: gosec
+	return ioutil.WriteFile(c.FilePath, []byte(newVersion), 0o644)
 }
 
 func bumpAtLeastMinor(c *config) error {
 	if !c.BumpMajor && !c.BumpMinor && !c.BumpPatch {
 		c.BumpPatch = true
 	}
+
 	return nil
 }
 
@@ -420,7 +465,18 @@ func bumpVersion(currentVersion string, c *config) (string, error) {
 	if c.BumpPatch {
 		cleanNewVersion = cleanNewVersion.IncPatch()
 	}
+
 	return c.VersionPrefix + cleanNewVersion.String(), nil
+}
+
+func printVersion() {
+	if Date != "" {
+		ts, err := strconv.Atoi(Date)
+		if err == nil {
+			Date = time.Unix(int64(ts), 0).UTC().String()
+		}
+	}
+	fmt.Printf("conver %s (%s, %s)\n", Version, Commit, Date)
 }
 
 func main() {
@@ -434,6 +490,11 @@ func main() {
 		log.Fatalf("err: %v", err)
 	}
 	flag.Parse()
+
+	if c.PrintVersion {
+		printVersion()
+		os.Exit(0)
+	}
 
 	actions := []func(*config) error{
 		autodetectBump,
