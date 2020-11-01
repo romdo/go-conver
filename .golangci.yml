@@ -68,6 +68,9 @@ issues:
     - source: "`json:"
       linters:
         - lll
+    - source: "`flag:"
+      linters:
+        - lll
 
 run:
   timeout: 2m
